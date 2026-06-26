@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Éditeur SENORIF</title>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+:root{--blue:#4c78b8;--dark:#111827;--muted:#6b7280;--border:#e5e7eb;--bg:#f8fafc;--red:#dc2626}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--dark)}
+header{min-height:64px;background:white;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;padding:10px 14px;position:sticky;top:0;z-index:10;flex-wrap:wrap}
+header strong{color:var(--blue);font-size:18px}
+button{border:1px solid var(--border);background:white;border-radius:10px;padding:9px 12px;font-weight:800;cursor:pointer}
+button:hover{background:#eef5ff}
+.primary{background:var(--blue);color:white;border-color:var(--blue)}
+.danger{color:var(--red)}
+.layout{display:grid;grid-template-columns:335px 1fr 450px;height:calc(100vh - 64px)}
+aside,.right{background:white;overflow:auto;padding:14px}
+aside{border-right:1px solid var(--border)}
+.right{border-left:1px solid var(--border)}
+main{overflow:auto;padding:20px}
+.help{background:#f9fafb;border:1px solid var(--border);border-radius:12px;padding:12px;color:var(--muted);font-size:13px;line-height:1.45;margin-bottom:12px}
+.toolbar{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+.small{font-size:12px;padding:6px 9px}
+.tree ul{list-style:none;margin:0;padding-left:17px}
+.tree li{margin:4px 0}
+.node-btn{width:100%;text-align:left;border:1px solid transparent;background:transparent;padding:7px 8px;border-radius:8px;font-weight:700;display:flex;gap:6px;align-items:center}
+.node-btn:hover{background:#f3f6fb}
+.node-btn.selected{background:#e8f1ff;border-color:#bcd2ff;color:#244f9e}
+.badge{font-size:10px;font-weight:900;padding:2px 6px;border-radius:999px;background:#eef2ff;color:#4868a8;margin-left:auto}
+.preview-card{max-width:900px;margin:0 auto;background:white;border-top:10px solid var(--blue);border-radius:22px;box-shadow:0 10px 30px rgba(31,50,90,.08);padding:34px}
+.preview-card h1{color:var(--blue);font-size:34px;font-weight:500;margin:0 0 12px}
+.preview-card h2{color:var(--blue);font-size:24px;font-weight:500;margin:0 0 18px}
+.preview-card .list{display:grid;gap:12px;margin-top:18px}
+.preview-card .item{display:block;padding:16px 18px;border:1px solid var(--border);border-left:8px solid var(--blue);border-radius:14px;background:#f9fafb;color:var(--dark);text-decoration:none;font-weight:800}
+.preview-card .content-html{line-height:1.7}
+.preview-card img{max-width:100%;height:auto}
+label{display:block;font-size:13px;font-weight:900;margin:12px 0 6px}
+input,textarea,select{width:100%;border:1px solid var(--border);border-radius:10px;padding:10px;font-family:inherit;font-size:14px}
+textarea{min-height:180px}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.status{margin-top:10px;font-size:13px;color:var(--muted);white-space:pre-wrap}
+.richbar{display:flex;gap:6px;flex-wrap:wrap;padding:8px;background:#f9fafb;border:1px solid var(--border);border-radius:12px 12px 0 0}
+.richbar button{padding:7px 10px;border-radius:8px}
+.editorbox{min-height:260px;border:1px solid var(--border);border-top:0;border-radius:0 0 12px 12px;padding:14px;background:white;line-height:1.65;overflow:auto}
+.editorbox:focus{outline:2px solid rgba(76,120,184,.25)}
+.tabs{display:flex;gap:6px;margin-top:8px}
+.tab{padding:7px 10px;font-size:12px}
+.tab.active{background:var(--blue);color:white}
+.hidden{display:none}
+.qbox{border:1px solid var(--border);border-radius:12px;padding:12px;margin-top:12px;background:#fcfcfd}
+@media(max-width:950px){.layout{grid-template-columns:1fr;height:auto}aside,.right{border:0;border-bottom:1px solid var(--border)}}
+</style>
+</head>
+<body>
+<input id="imagePicker" type="file" accept="image/*" style="display:none" onchange="handleImagePicked(event)">
+<header>
+  <strong>Éditeur SENORIF</strong>
+  <button onclick="newProject()">Nouveau</button>
+  <button onclick="autoLoadRepo(true)">Recharger dépôt GitHub</button>
+  
+  
+  <button class="primary" onclick="exportZip()">Exporter ZIP</button>
+</header>
+
+<div class="layout">
+<aside>
+  <div class="help">Importe le ZIP du dépôt ou laisse l’éditeur tenter de charger automatiquement le dépôt GitHub Pages.</div>
+  <label>Importer le site existant</label>
+  <input type="file" id="importFile" accept=".zip,.json" onchange="importFile(event)">
+  <div class="toolbar">
+    <button class="small" onclick="addRoot()">+ Chapitre</button>
+    <button class="small" onclick="addChild('folder')">+ Dossier</button>
+    <button class="small" onclick="addChild('page')">+ Page</button>
+    <button class="small" onclick="addQuestionnaire()">+ Questionnaire</button>
+    <button class="small danger" onclick="deleteSelected()">Supprimer</button>
+  </div>
+  <h3>Structure</h3>
+  <div id="tree" class="tree"></div>
+</aside>
+
+<main><div id="preview" class="preview-card"></div></main>
+
+<section class="right">
+  <h3>Édition</h3>
+  <div id="editorEmpty" class="help">Sélectionne un élément.</div>
+  <div id="editor" style="display:none">
+    <label>Type</label>
+    <select id="editType" onchange="updateSelectedMeta()">
+      <option value="folder">Dossier / menu</option>
+      <option value="page">Page</option>
+    </select>
+
+    <label>Titre</label>
+    <input id="editTitle" oninput="updateSelectedMeta()">
+
+    <label>Slug / nom du fichier ou dossier</label>
+    <input id="editSlug" oninput="updateSelectedMeta()">
+
+    <label>Couleur</label>
+    <input id="editColor" type="color" oninput="updateSelectedMeta()">
+
+    <div class="toolbar">
+      <button onclick="moveSelected(-1)">↑ Monter</button>
+      <button onclick="moveSelected(1)">↓ Descendre</button>
+    </div>
+
+    <label>Contenu</label>
+    <div class="tabs">
+      <button class="tab active" id="tabRich" onclick="showEditorMode('rich')">Éditeur normal</button>
+      <button class="tab" id="tabHtml" onclick="showEditorMode('html')">HTML</button>
+    </div>
+
+    <div id="richWrap">
+      <div class="richbar">
+        <button type="button" onclick="cmd('bold')"><b>Gras</b></button>
+        <button type="button" onclick="cmd('italic')"><i>Italique</i></button>
+        <button type="button" onclick="cmd('underline')"><u>Souligné</u></button>
+        <button type="button" onclick="cmd('insertUnorderedList')">• Liste</button>
+        <button type="button" onclick="cmd('insertOrderedList')">1. Liste</button>
+        <button type="button" onclick="makeHeading()">Titre</button>
+        <button type="button" onclick="insertImage()">Image</button>
+      </div>
+      <div id="richContent" class="editorbox" contenteditable="true" oninput="updateSelectedContentFromRich()"></div>
+    </div>
+
+    <textarea id="editContent" class="hidden" oninput="updateSelectedContentFromHtml()"></textarea>
+
+    <div id="questionnairePanel" class="qbox hidden">
+      <h3>Questionnaire</h3>
+      <div class="help">Ce JSON sera exporté dans le dossier <b>questionnaires/</b>. La page affichera automatiquement le bouton “Faire un test”.</div>
+      <textarea id="editQuiz" class="code" oninput="updateSelectedQuiz()"></textarea>
+      <div class="toolbar">
+        <button onclick="prettyQuiz()">Formater JSON</button>
+        <button onclick="insertQuizExample()">Exemple complet</button>
+        <button class="danger" onclick="removeQuestionnaire()">Supprimer questionnaire</button>
+      </div>
+    </div>
+
+    <div class="help">Correction images : l’éditeur stocke maintenant les images en interne avec <b>data-senorif-image</b>, puis recalcule automatiquement le bon chemin <b>../../images/...</b> à l’export.</div>
+  </div>
+  <div id="status" class="status"></div>
+</section>
+</div>
+
+<script>
+let data=null, selectedId=null, assets={}, suppress=false, savedImageRange=null, blobUrls={};
+const RESERVED_DIRS=new Set(["images","image","img","questionnaires","questionnaire","assets","css","js"]);
+const RESERVED_FILES=new Set(["editeur.html","index-editeur.html","senorif-data.json"]);
+const $=id=>document.getElementById(id);
+
+function uid(){return"n"+Math.random().toString(36).slice(2,9)}
+function slugify(s){return String(s||"page").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/œ/g,"oe").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"page"}
+function esc(s){return String(s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}
+function cleanPath(p){return p.replace(/^\/+/,"").replace(/\\/g,"/")}
+function setStatus(s){$("status").textContent=s}
+
+function defaultData(){
+  return {
+    titre:"SENORIF interactif",
+    sous_titre:"Cancers et pathologies du sein — navigation par chapitres",
+    chapitres:[{
+      id:uid(), titre:"Carcinome in situ (CIS)", slug:"carcinome-in-situ", type:"folder", color:"#4c78b8", contenu_html:"",
+      enfants:[{
+        id:uid(), titre:"Radiothérapie des carcinomes in situ", slug:"radiotherapie", type:"folder", color:"#4c78b8", contenu_html:"",
+        enfants:[{id:uid(), titre:"Arbre de décision", slug:"arbre-de-decision", type:"page", color:"#4c78b8", contenu_html:"<p>Page avec questionnaire.</p>"}]
+      }]
+    }]
+  };
+}
+
+function newProject(){
+  if(confirm("Créer un projet exemple ?")){
+    assets={}; data=defaultData(); selectedId=data.chapitres[0].id; render(); setStatus("Projet exemple chargé.");
+  }
+}
+
+function findNode(id,nodes=data.chapitres,parent=null){
+  for(let i=0;i<nodes.length;i++){
+    let n=nodes[i];
+    if(n.id===id) return {node:n,parent,index:i,list:nodes};
+    if(n.enfants){
+      let f=findNode(id,n.enfants,n);
+      if(f) return f;
+    }
+  }
+  return null;
+}
+
+function titleFromSlug(slug){return slug.split("-").map(w=>w?w[0].toUpperCase()+w.slice(1):"").join(" ")}
+function detectColorFromHtml(html){let m=html.match(/--blue\s*:\s*(#[0-9a-fA-F]{6})/)||html.match(/--accent\s*:\s*(#[0-9a-fA-F]{6})/);return m?m[1]:"#4c78b8"}
+
+function parseHtmlInfo(html,fallback,isIndex=false){
+  const doc=new DOMParser().parseFromString(html,"text/html");
+  let content=doc.querySelector(".content")||doc.querySelector("main")||doc.body;
+  let h1=content.querySelector("h1")?.textContent?.trim();
+  let h2=content.querySelector("h2")?.textContent?.trim();
+  let bad=h2 && (h2.toLowerCase()==="menu" || h2.toLowerCase().includes("choisis une sous-partie"));
+  let title=(isIndex ? ((!bad&&h2)||h1||fallback) : ((!bad&&h2)||h1||fallback)).trim();
+  let clone=content.cloneNode(true);
+  clone.querySelectorAll("a.back,script,style,.list,.test-btn,.quiz").forEach(el=>el.remove());
+  let firstH1=clone.querySelector("h1"); if(firstH1) firstH1.remove();
+  let firstH2=clone.querySelector("h2"); if(firstH2 && firstH2.textContent.trim()===title) firstH2.remove();
+  Array.from(clone.querySelectorAll("p")).forEach(p=>{if(p.textContent.toLowerCase().includes("choisis une sous-partie"))p.remove()});
+  return {titre:title, contenu_html:exportHtmlToStored(clone.innerHTML.trim(),null)};
+}
+
+async function importFile(e){
+  let file=e.target.files[0]; if(!file) return;
+  if(file.name.toLowerCase().endsWith(".zip")) return importZip(file);
+  try{let obj=JSON.parse(await file.text()); data=obj.data||obj; selectedId=data.chapitres?.[0]?.id||null; render(); setStatus("JSON importé.")}
+  catch(err){alert("JSON invalide : "+err.message)}
+}
+
+async function importZip(file){
+  if(typeof JSZip==="undefined") return alert("JSZip non chargé.");
+  setStatus("Lecture du ZIP...");
+  let zip=await JSZip.loadAsync(file), files={}; assets={};
+
+  for(let [path,obj] of Object.entries(zip.files)){
+    if(obj.dir) continue;
+    let p=cleanPath(path), base=p.split("/").pop();
+    if(RESERVED_FILES.has(base)) continue;
+    if(p.toLowerCase().endsWith(".html")) files[p]=await obj.async("string");
+    else if(p.toLowerCase().endsWith(".json") && p.startsWith("questionnaires/")) assets[p]=await obj.async("string");
+    else assets[p]=await obj.async("uint8array");
+  }
+
+  data=buildDataFromFiles(files);
+  attachQuestionnairesFromAssets();
+  selectedId=data.chapitres[0]?.id||null;
+  render();
+  setStatus("ZIP importé : plan reconstruit.");
+}
+
+function attachQuestionnairesFromAssets(){
+  Object.keys(assets).forEach(p=>{
+    if(!p.startsWith("questionnaires/") || !p.endsWith(".json")) return;
+    let key=p.replace(/^questionnaires\//,"").replace(/\.json$/,"");
+    let all=[]; collectNodes(data.chapitres,all);
+    let found=all.find(n=>nodePath(n).join("_")===key || nodePath(n).join("-")===key);
+    if(found){
+      try{found.questionnaire_json=typeof assets[p]==="string"?JSON.parse(assets[p]):JSON.parse(new TextDecoder().decode(assets[p]))}catch(e){}
+    }
+  });
+}
+
+function buildDataFromFiles(files){
+  let root={children:{},files:{}};
+  Object.keys(files).forEach(path=>{
+    let parts=path.split("/");
+    if(parts.length===1) return;
+    if(RESERVED_DIRS.has(parts[0].toLowerCase())) return;
+    let cur=root;
+    for(let i=0;i<parts.length-1;i++){
+      let d=parts[i];
+      cur.children[d]=cur.children[d]||{children:{},files:{},slug:d};
+      cur=cur.children[d];
+    }
+    cur.files[parts.at(-1)]=path;
+  });
+
+  function folder(slug,dir,color){
+    let ip=dir.files["index.html"], titre=titleFromSlug(slug), contenu="", c=color;
+    if(ip){
+      let info=parseHtmlInfo(files[ip],titre,true);
+      titre=info.titre; contenu=info.contenu_html; c=detectColorFromHtml(files[ip])||color;
+    }
+    let node={id:uid(),titre,slug,type:"folder",color:c,contenu_html:contenu,enfants:[]};
+    Object.keys(dir.children).sort().forEach(s=>{if(!RESERVED_DIRS.has(s.toLowerCase())) node.enfants.push(folder(s,dir.children[s],c))});
+    Object.keys(dir.files).sort().forEach(file=>{
+      if(file==="index.html"||!file.endsWith(".html")) return;
+      let path=dir.files[file], ps=file.replace(/\.html$/i,""), info=parseHtmlInfo(files[path],titleFromSlug(ps),false);
+      node.enfants.push({id:uid(),titre:info.titre,slug:ps,type:"page",color:detectColorFromHtml(files[path])||c,contenu_html:info.contenu_html});
+    });
+    return node;
+  }
+
+  let colors=["#5570AE","#D9A441","#8E7CC3","#3F8CC9","#48A68D","#E67E22","#C15A8A"];
+  return {titre:"SENORIF interactif",sous_titre:"Cancers et pathologies du sein — navigation par chapitres",chapitres:Object.keys(root.children).sort().map((s,i)=>folder(s,root.children[s],colors[i%colors.length]))};
+}
+
+async function autoLoadRepo(manual=false){
+  let host=location.hostname;
+  if(!host.endsWith("github.io")){
+    if(manual) alert("Importe un ZIP si tu n’es pas sur GitHub Pages.");
+    data=defaultData(); selectedId=data.chapitres[0].id; render(); return;
+  }
+  let owner=host.split(".")[0], repo=location.pathname.split("/").filter(Boolean)[0];
+  if(!owner||!repo){data=defaultData(); selectedId=data.chapitres[0].id; render(); return;}
+  setStatus("Chargement automatique du dépôt "+owner+"/"+repo+"...");
+  let files={}, assetUrls={};
+
+  async function walk(path=""){
+    let r=await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`);
+    if(!r.ok) throw new Error("GitHub API HTTP "+r.status);
+    let arr=await r.json();
+    for(let item of arr){
+      if(item.type==="dir"){
+        if(item.name!==".git") await walk(item.path);
+      }else if(item.type==="file"){
+        let p=item.path, base=p.split("/").pop();
+        if(RESERVED_FILES.has(base)) continue;
+        if(p.toLowerCase().endsWith(".html")) files[p]=await(await fetch(item.download_url)).text();
+        else if(p.includes("/")) assetUrls[p]=item.download_url;
+      }
+    }
+  }
+
+  try{
+    await walk("");
+    data=buildDataFromFiles(files);
+    assets={};
+    for(let [p,u] of Object.entries(assetUrls)){
+      try{
+        if(p.startsWith("questionnaires/") && p.endsWith(".json")) assets[p]=await(await fetch(u)).text();
+        else assets[p]=new Uint8Array(await(await fetch(u)).arrayBuffer());
+      }catch(e){}
+    }
+    attachQuestionnairesFromAssets();
+    selectedId=data.chapitres[0]?.id||null; render(); setStatus("Dépôt chargé. HTML : "+Object.keys(files).length);
+  }catch(e){
+    setStatus("Chargement auto impossible : "+e.message+"\\nImporte un ZIP.");
+    data=defaultData(); selectedId=data.chapitres[0].id; render();
+  }
+}
+
+function collectNodes(nodes,out){nodes.forEach(n=>{out.push(n); if(n.enfants) collectNodes(n.enfants,out)})}
+
+function renderTree(){
+  function branch(nodes){
+    let h="<ul>";
+    nodes.forEach(n=>{
+      let icon=n.type==="page"?"📄":"📁";
+      let q=n.questionnaire_json?" 🧭":"";
+      h+=`<li><button class="node-btn ${selectedId===n.id?"selected":""}" onclick="selectNode('${n.id}')"><span>${icon}</span><span>${esc(n.titre)}${q}</span><span class="badge">${n.type}</span></button>`;
+      if(n.enfants?.length) h+=branch(n.enfants);
+      h+="</li>";
+    });
+    return h+"</ul>";
+  }
+  $("tree").innerHTML=branch(data.chapitres);
+}
+
+function selectNode(id){selectedId=id; render()}
+
+function renderEditor(){
+  let f=selectedId?findNode(selectedId):null;
+  $("editorEmpty").style.display=f?"none":"block";
+  $("editor").style.display=f?"block":"none";
+  if(!f) return;
+  let n=f.node;
+  suppress=true;
+  $("editType").value=n.type||"page";
+  $("editTitle").value=n.titre||"";
+  $("editSlug").value=n.slug||"";
+  $("editColor").value=n.color||"#4c78b8";
+  $("richContent").innerHTML=editorHtmlFromStored(n.contenu_html||"");
+  $("editContent").value=storedHtmlToExportHtml(n.contenu_html||"",n);
+  if(n.questionnaire_json){
+    $("questionnairePanel").classList.remove("hidden");
+    $("editQuiz").value=JSON.stringify(n.questionnaire_json,null,2);
+  }else{
+    $("questionnairePanel").classList.add("hidden");
+    $("editQuiz").value="";
+  }
+  suppress=false;
+}
+
+function updateSelectedMeta(){
+  let f=findNode(selectedId); if(!f) return;
+  let n=f.node;
+  n.type=$("editType").value; n.titre=$("editTitle").value||"Sans titre"; n.slug=slugify($("editSlug").value||n.titre); n.color=$("editColor").value;
+  if(n.type==="folder"&&!n.enfants) n.enfants=[];
+  render(false);
+}
+
+function updateSelectedContentFromRich(){
+  if(suppress) return;
+  let f=findNode(selectedId); if(!f) return;
+  f.node.contenu_html=editorHtmlToStored($("richContent").innerHTML);
+  $("editContent").value=storedHtmlToExportHtml(f.node.contenu_html,f.node);
+  renderPreview();
+}
+
+function updateSelectedContentFromHtml(){
+  if(suppress) return;
+  let f=findNode(selectedId); if(!f) return;
+  f.node.contenu_html=exportHtmlToStored($("editContent").value,f.node);
+  $("richContent").innerHTML=editorHtmlFromStored(f.node.contenu_html);
+  renderPreview();
+}
+
+function renderPreview(){
+  let f=selectedId?findNode(selectedId):null,p=$("preview");
+  if(!f){p.innerHTML="<h1>SENORIF interactif</h1><p>Sélectionne un élément.</p>";return}
+  let n=f.node, body=storedHtmlToPreviewHtml(n.contenu_html||"",n);
+  p.style.borderTopColor=n.color||"#4c78b8"; p.style.setProperty("--blue",n.color||"#4c78b8");
+  let quiz=n.questionnaire_json?`<button class="item" style="width:auto;display:inline-block">Faire un test</button>`:"";
+  if(n.type==="folder"){
+    let links=(n.enfants||[]).map(c=>`<a class="item" href="#">› ${esc(c.titre)}</a>`).join("");
+    p.innerHTML=`<h1>${esc(n.titre)}</h1><div class="content-html">${body}</div>${quiz}<div class="list">${links||"<p>Aucune sous-partie.</p>"}</div>`;
+  }else{
+    p.innerHTML=`<h1>${esc(n.titre)}</h1><div class="content-html">${body||"<p>Page vide.</p>"}</div>${quiz}`;
+  }
+}
+
+function render(ed=true){renderTree(); renderPreview(); if(ed) renderEditor()}
+
+function addRoot(){
+  let n={id:uid(),titre:"Nouveau chapitre",slug:"nouveau-chapitre",type:"folder",color:"#4c78b8",enfants:[],contenu_html:""};
+  data.chapitres.push(n); selectedId=n.id; render();
+}
+
+function addChild(type){
+  let f=findNode(selectedId); if(!f) return alert("Sélectionne un élément.");
+  let p=f.node;
+  if(p.type==="page"){p.type="folder";p.enfants=[]}
+  p.enfants=p.enfants||[];
+  let t=type==="page"?"Nouvelle page":"Nouveau dossier";
+  let n={id:uid(),titre:t,slug:slugify(t),type:type,color:p.color||"#4c78b8",contenu_html:type==="page"?"<p>Colle ici le texte.</p>":"",enfants:type==="folder"?[]:undefined};
+  p.enfants.push(n); selectedId=n.id; render();
+}
+
+function quizExample(){
+  return {
+    type:"question",
+    titre:"Première question ?",
+    aide:"Texte d’aide facultatif.",
+    choix:{
+      "Oui":{
+        type:"question",
+        titre:"Deuxième question ?",
+        choix:{
+          "Oui":{type:"resultat",titre:"Résultat A",recommandations:["Recommandation A."]},
+          "Non":{type:"resultat",titre:"Résultat B",recommandations:["Recommandation B."]}
+        }
+      },
+      "Non":{type:"resultat",titre:"Résultat C",recommandations:["Recommandation C."]}
+    },
+    note_boost:["Note facultative affichée en fin de questionnaire."]
+  };
+}
+
+function addQuestionnaire(){
+  let f=findNode(selectedId); if(!f) return alert("Sélectionne une page ou un dossier.");
+  f.node.questionnaire_json=quizExample();
+  render();
+}
+
+function insertQuizExample(){
+  let f=findNode(selectedId); if(!f) return;
+  f.node.questionnaire_json=quizExample();
+  $("editQuiz").value=JSON.stringify(f.node.questionnaire_json,null,2);
+  renderTree(); renderPreview();
+}
+
+function updateSelectedQuiz(){
+  if(suppress) return;
+  let f=findNode(selectedId); if(!f) return;
+  try{
+    f.node.questionnaire_json=JSON.parse($("editQuiz").value);
+    setStatus("Questionnaire JSON valide.");
+    renderTree(); renderPreview();
+  }catch(e){
+    setStatus("Questionnaire JSON invalide : "+e.message);
+  }
+}
+
+function prettyQuiz(){
+  let f=findNode(selectedId); if(!f || !f.node.questionnaire_json) return;
+  $("editQuiz").value=JSON.stringify(f.node.questionnaire_json,null,2);
+}
+
+function removeQuestionnaire(){
+  let f=findNode(selectedId); if(!f) return;
+  if(confirm("Supprimer le questionnaire de cette page ?")){
+    delete f.node.questionnaire_json; render();
+  }
+}
+
+function deleteSelected(){
+  let f=findNode(selectedId); if(!f) return;
+  if(!confirm("Supprimer « "+f.node.titre+" » ?")) return;
+  f.list.splice(f.index,1); selectedId=f.parent?f.parent.id:data.chapitres[0]?.id; render();
+}
+
+function moveSelected(d){
+  let f=findNode(selectedId); if(!f) return;
+  let ni=f.index+d; if(ni<0||ni>=f.list.length) return;
+  let [it]=f.list.splice(f.index,1); f.list.splice(ni,0,it); render();
+}
+
+function saveLocal(){
+  try{
+    localStorage.setItem("senorif_editeur_data",JSON.stringify({data,assets:serialiseAssets()}));
+    setStatus("Sauvegardé localement, images incluses.");
+  }catch(e){
+    setStatus("Sauvegarde locale trop lourde. Exporte plutôt le ZIP.");
+  }
+}
+
+function loadLocal(){
+  let s=localStorage.getItem("senorif_editeur_data"); if(!s) return alert("Aucune sauvegarde.");
+  let obj=JSON.parse(s); data=obj.data; assets=restoreAssets(obj.assets||{}); selectedId=data.chapitres[0]?.id; render(); setStatus("Rechargé.");
+}
+
+function serialiseAssets(){
+  let out={};
+  for(let [p,v] of Object.entries(assets)){
+    if(typeof v==="string") out[p]={type:"text",value:v};
+    else out[p]={type:"bytes",value:Array.from(v)};
+  }
+  return out;
+}
+
+function restoreAssets(obj){
+  let out={};
+  for(let [p,v] of Object.entries(obj)){
+    out[p]=v.type==="text"?v.value:new Uint8Array(v.value);
+  }
+  return out;
+}
+
+function showEditorMode(mode){
+  $("tabRich").classList.toggle("active",mode==="rich");
+  $("tabHtml").classList.toggle("active",mode==="html");
+  $("richWrap").classList.toggle("hidden",mode!=="rich");
+  $("editContent").classList.toggle("hidden",mode!=="html");
+}
+
+function cmd(c){document.execCommand(c,false,null); $("richContent").focus(); updateSelectedContentFromRich()}
+function makeHeading(){document.execCommand("formatBlock",false,"h2"); $("richContent").focus(); updateSelectedContentFromRich()}
+
+function insertImage(){
+  $("richContent").focus();
+  const sel=window.getSelection();
+  if(sel && sel.rangeCount>0) savedImageRange=sel.getRangeAt(0).cloneRange();
+  $("imagePicker").value="";
+  $("imagePicker").click();
+}
+
+function extensionFromFile(file){
+  const name=(file.name||"").toLowerCase(), ext=name.includes(".")?name.split(".").pop():"";
+  if(["jpg","jpeg","png","webp","gif","svg"].includes(ext)) return ext;
+  if(file.type==="image/png") return "png";
+  if(file.type==="image/webp") return "webp";
+  if(file.type==="image/gif") return "gif";
+  if(file.type==="image/svg+xml") return "svg";
+  return "jpeg";
+}
+
+function imageBaseForSelected(){
+  let f=findNode(selectedId); if(!f) return "image";
+  return slugify(nodePath(f.node).join("_")).replaceAll("-","_") || "image";
+}
+
+function uniqueImagePath(base,ext){
+  let path="images/"+base+"."+ext, i=2;
+  while(assets[path]){path="images/"+base+"_"+i+"."+ext;i++}
+  return path;
+}
+
+async function handleImagePicked(event){
+  const file=event.target.files[0]; if(!file) return;
+  const ext=extensionFromFile(file), base=imageBaseForSelected(), imagePath=uniqueImagePath(base,ext);
+  assets[imagePath]=new Uint8Array(await file.arrayBuffer());
+
+  const imgHtml='<img data-senorif-image="'+esc(imagePath)+'" src="'+esc(blobUrlForAsset(imagePath))+'" alt="">';
+
+  $("richContent").focus();
+  if(savedImageRange){
+    const sel=window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(savedImageRange);
+  }
+  document.execCommand("insertHTML",false,imgHtml);
+  savedImageRange=null;
+  updateSelectedContentFromRich();
+  setStatus("Image ajoutée : "+imagePath);
+}
+
+function blobUrlForAsset(path){
+  if(blobUrls[path]) return blobUrls[path];
+  let v=assets[path];
+  if(!v || typeof v==="string") return path;
+  let blob=new Blob([v]);
+  blobUrls[path]=URL.createObjectURL(blob);
+  return blobUrls[path];
+}
+
+function nodePath(t,nodes=data.chapitres,parts=[]){
+  for(let n of nodes){
+    let cur=[...parts,n.slug];
+    if(t && n.id===t.id) return cur;
+    if(n.enfants){let p=nodePath(t,n.enfants,cur); if(p) return p}
+  }
+  return [];
+}
+
+function depthForNode(n){
+  let parts=nodePath(n);
+  return n.type==="folder" ? parts.length : Math.max(0,parts.length-1);
+}
+
+function rel(depth){return depth===0?"":"../".repeat(depth)}
+
+function editorHtmlToStored(html){
+  let div=document.createElement("div"); div.innerHTML=html;
+  div.querySelectorAll("img[data-senorif-image]").forEach(img=>{
+    img.setAttribute("src",img.getAttribute("data-senorif-image"));
+  });
+  return div.innerHTML;
+}
+
+function editorHtmlFromStored(html){
+  let div=document.createElement("div"); div.innerHTML=html;
+  div.querySelectorAll("img[data-senorif-image]").forEach(img=>{
+    let p=img.getAttribute("data-senorif-image");
+    img.setAttribute("src",blobUrlForAsset(p));
+  });
+  return div.innerHTML;
+}
+
+function storedHtmlToPreviewHtml(html,n){
+  let div=document.createElement("div"); div.innerHTML=html;
+  div.querySelectorAll("img[data-senorif-image]").forEach(img=>{
+    let p=img.getAttribute("data-senorif-image");
+    img.setAttribute("src",blobUrlForAsset(p));
+  });
+  return div.innerHTML;
+}
+
+function storedHtmlToExportHtml(html,n){
+  let div=document.createElement("div"); div.innerHTML=html;
+  let prefix=n?rel(depthForNode(n)):"";
+  div.querySelectorAll("img[data-senorif-image]").forEach(img=>{
+    let p=img.getAttribute("data-senorif-image");
+    img.setAttribute("src",prefix+p);
+  });
+  return div.innerHTML;
+}
+
+function exportHtmlToStored(html,n){
+  let div=document.createElement("div"); div.innerHTML=html;
+  div.querySelectorAll("img").forEach(img=>{
+    let src=img.getAttribute("src")||"";
+    let existing=img.getAttribute("data-senorif-image");
+    if(existing) return;
+    let m=src.match(/(?:\.\.\/)*images\/(.+)$/);
+    if(m){
+      img.setAttribute("data-senorif-image","images/"+m[1]);
+      img.setAttribute("src","images/"+m[1]);
+    }
+  });
+  return div.innerHTML;
+}
+
+function pageCss(){return`:root{--blue:#4c78b8;--text:#111827;--muted:#6b7280;--border:#e5e7eb;--card:#f8fafc;--green:#16a34a}*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:white;color:var(--text);line-height:1.65}main{max-width:980px;margin:0 auto;padding:38px 24px 70px}.back{display:inline-block;margin-bottom:28px;color:var(--blue);font-weight:800;text-decoration:none}.content{background:white;border-top:10px solid var(--blue);border-radius:20px;box-shadow:0 10px 28px rgba(31,50,90,.08);padding:34px}h1{color:var(--blue);font-size:34px;font-weight:500;margin:0 0 14px}h2{color:var(--blue);font-size:24px;font-weight:500;margin:0 0 22px}p{font-size:16px;margin:0 0 16px}ul{margin:0 0 18px 24px}.list{display:grid;gap:12px;margin-top:18px}.item{display:block;padding:16px 18px;border:1px solid var(--border);border-left:8px solid var(--blue);border-radius:14px;background:#f9fafb;color:var(--text);text-decoration:none;font-weight:800}img{max-width:100%;height:auto}.test-btn{border:0;border-radius:999px;background:var(--blue);color:white;padding:13px 20px;font-weight:900;cursor:pointer;margin:8px 0 22px}.quiz{margin:10px 0 30px;display:none}.quiz.active{display:block}.question-card{border:1px solid var(--border);border-left:8px solid var(--blue);border-radius:14px;background:var(--card);padding:18px;margin:14px 0}.question-card h3{font-size:18px;margin:0 0 8px;color:#111827}.help{color:var(--muted);font-size:14px;margin:0 0 12px}.choices{display:flex;flex-direction:column;gap:9px}.choice{border:1px solid var(--border);background:white;border-radius:10px;padding:12px 14px;font-weight:800;text-align:left;cursor:pointer}.choice:hover{border-color:var(--blue);background:#eef5ff}.choice.selected{background:#e8f1ff;border-color:var(--blue);color:#274f91}.result{border:1px solid #bbf7d0;border-left:8px solid var(--green);border-radius:14px;background:#f0fdf4;padding:20px;margin:16px 0 24px}.result h3{margin:0 0 10px;color:#166534}.note{margin-top:20px;padding:14px 16px;background:#f9fafb;border:1px solid var(--border);border-radius:12px;color:var(--muted);font-size:14px}@media(max-width:600px){main{padding:28px 18px 60px}.content{padding:24px}h1{font-size:28px}}`}
+
+function homeCss(){return`:root{--bg:#ffffff;--card:#c5d8e8;--text:#233044;--muted:#617086}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}.wrapper{max-width:1180px;margin:0 auto;padding:34px 22px 70px}header{text-align:center;margin-bottom:30px}h1{color:#4868a8;font-size:clamp(34px,5vw,58px);font-weight:900}.subtitle{color:#617086;font-size:17px;margin-top:8px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}.chapter summary{list-style:none;position:relative;width:100%;min-height:126px;border:0;border-radius:0 18px 18px 0;background:var(--card);color:#6d82a5;font-size:22px;font-weight:800;line-height:1.15;padding:18px 18px 18px 28px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(31,50,90,.06);overflow:hidden}.chapter summary::-webkit-details-marker{display:none}.chapter summary::before{content:"";position:absolute;left:0;top:0;bottom:0;width:24px;background:var(--accent)}.chapter[open] summary{background:color-mix(in srgb, var(--accent) 78%, white);color:white}.panel{background:color-mix(in srgb, var(--accent) 84%, #233044);color:white;border-radius:0 0 18px 18px;padding:28px 26px 32px;margin-top:10px;box-shadow:0 10px 24px rgba(31,50,90,.13)}.panel h2{font-size:26px;margin-bottom:18px;color:#eef5ff}.panel ul{list-style:none}.panel li{margin:8px 0}.subchapter-btn{color:#eef5ff;display:flex;gap:12px;text-align:left;font-size:17px;font-weight:800;padding:4px 0;text-decoration:none}.chev{font-size:23px;line-height:1;color:#d9e8ff}@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.grid{grid-template-columns:1fr}}`}
+
+function hrefForHome(ch,c){
+  return ch.slug+"/"+(c.type==="folder" ? c.slug+"/index.html" : c.slug+".html");
+}
+
+function generateHome(){
+  let b="";
+  data.chapitres.forEach(ch=>{
+    let items=(ch.enfants||[]).map(c=>`<li><a class="subchapter-btn" href="${hrefForHome(ch,c)}"><span class="chev">›</span><span>${esc(c.titre)}</span></a></li>`).join("");
+    b+=`<details class="chapter" style="--accent:${ch.color||"#5570AE"}"><summary>${esc(ch.titre)}</summary><div class="panel"><h2>${esc(ch.titre)}</h2><ul>${items}</ul></div></details>`;
+  });
+  return`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(data.titre)}</title><style>${homeCss()}</style></head><body><div class="wrapper"><header><h1>${esc(data.titre)}</h1><p class="subtitle">${esc(data.sous_titre||"")}</p></header><div class="grid">${b}</div></div></body></html>`;
+}
+
+function quizFilePath(n){
+  return "questionnaires/"+nodePath(n).join("_")+".json";
+}
+
+function generateQuizScript(jsonPath){
+  return `<script>
+let TREE=null,path=[];
+fetch("${jsonPath}?v="+Date.now()).then(r=>{if(!r.ok)throw new Error("Impossible de charger le JSON");return r.json()}).then(data=>{TREE=data}).catch(err=>{let q=document.getElementById("quiz");if(q)q.innerHTML="<div class='question-card'>Erreur de chargement du questionnaire : "+err.message+"</div>"});
+function startQuiz(){if(!TREE){alert("Le questionnaire est encore en chargement. Réessaie dans une seconde.");return}path=[];const quiz=document.getElementById("quiz");quiz.classList.add("active");quiz.innerHTML="";renderQuestion(TREE)}
+function renderQuestion(node){const quiz=document.getElementById("quiz");if(node.type==="resultat"){renderResult(node);return}const card=document.createElement("div");card.className="question-card";const title=document.createElement("h3");title.textContent=node.titre||"Question";card.appendChild(title);if(node.aide){const help=document.createElement("p");help.className="help";help.textContent=node.aide;card.appendChild(help)}const choices=document.createElement("div");choices.className="choices";Object.keys(node.choix||{}).forEach(label=>{const btn=document.createElement("button");btn.className="choice";btn.type="button";btn.textContent=label;btn.onclick=function(){Array.from(choices.querySelectorAll(".choice")).forEach(b=>{b.disabled=true;b.classList.remove("selected")});btn.classList.add("selected");path.push({question:node.titre,reponse:label});renderQuestion(node.choix[label])};choices.appendChild(btn)});card.appendChild(choices);quiz.appendChild(card);card.scrollIntoView({behavior:"smooth",block:"nearest"})}
+function renderResult(node){const quiz=document.getElementById("quiz");const result=document.createElement("div");result.className="result";let html="<h3>"+escapeHtml(node.titre||"Résultat")+"</h3>";if(node.recommandations&&node.recommandations.length){html+="<ul>";node.recommandations.forEach(item=>{html+="<li>"+escapeHtml(item)+"</li>"});html+="</ul>"}if(TREE.note_boost&&TREE.note_boost.length){html+="<div class='note'><strong>Note :</strong><ul>";TREE.note_boost.forEach(item=>{html+="<li>"+escapeHtml(item)+"</li>"});html+="</ul></div>"}html+="<button class='test-btn' type='button' onclick='startQuiz()'>Recommencer le test</button>";result.innerHTML=html;quiz.appendChild(result);result.scrollIntoView({behavior:"smooth",block:"nearest"})}
+function escapeHtml(str){return String(str||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}
+<\/script>`;
+}
+
+function generatePageAt(n,depth){
+  let back=n.type==="folder" ? "../".repeat(depth)+"index.html" : "index.html";
+  let body="";
+  if(n.type==="folder"){
+    let items=(n.enfants||[]).map(c=>`<a class="item" href="${c.type==="folder"?c.slug+"/index.html":c.slug+".html"}">› ${esc(c.titre)}</a>`).join("");
+    body=`${storedHtmlToExportHtml(n.contenu_html||"",n)}<div class="list">${items}</div>`;
+  }else{
+    body=storedHtmlToExportHtml(n.contenu_html||"<p>Page vide.</p>",n);
+  }
+
+  let quizButton="", quizScript="";
+  if(n.questionnaire_json){
+    let qPath=rel(depth)+quizFilePath(n);
+    quizButton=`<button class="test-btn" type="button" onclick="startQuiz()">Faire un test</button><div id="quiz" class="quiz"></div>`;
+    quizScript=generateQuizScript(qPath);
+  }
+
+  return`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(n.titre)} — SENORIF</title><style>${pageCss()}</style></head><body><main><a class="back" href="${back}">← Retour</a><div class="content" style="--blue:${n.color||"#4c78b8"}"><h1>${esc(n.titre)}</h1>${quizButton}${body}</div></main>${quizScript}</body></html>`;
+}
+
+async function exportZip(){
+  let zip=new JSZip();
+  zip.file("index.html",generateHome());
+
+  function addFolder(folder,pathParts){
+    let folderPath=pathParts.join("/");
+    zip.file(folderPath+"/index.html",generatePageAt(folder,pathParts.length));
+    if(folder.questionnaire_json) zip.file(quizFilePath(folder),JSON.stringify(folder.questionnaire_json,null,2));
+    (folder.enfants||[]).forEach(child=>{
+      if(child.type==="folder") addFolder(child,pathParts.concat(child.slug));
+      else{
+        zip.file(folderPath+"/"+child.slug+".html",generatePageAt(child,pathParts.length));
+        if(child.questionnaire_json) zip.file(quizFilePath(child),JSON.stringify(child.questionnaire_json,null,2));
+      }
+    });
+  }
+
+  data.chapitres.forEach(ch=>{
+    if(ch.type==="folder") addFolder(ch,[ch.slug]);
+    else{
+      zip.file(ch.slug+".html",generatePageAt(ch,0));
+      if(ch.questionnaire_json) zip.file(quizFilePath(ch),JSON.stringify(ch.questionnaire_json,null,2));
+    }
+  });
+
+  for(let [p,buf] of Object.entries(assets)){
+    if(p.startsWith("questionnaires/")) continue;
+    zip.file(p,buf);
+  }
+
+  let blob=await zip.generateAsync({type:"blob"});
+  let a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="site-senorif-export.zip";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+autoLoadRepo(false);
+</script>
+</body>
+</html>
